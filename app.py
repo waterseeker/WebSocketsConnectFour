@@ -1,18 +1,55 @@
 import asyncio
+import itertools
+import json
 import websockets
+from connect4 import PLAYER1, PLAYER2, Connect4
 
 
 async def handler(websocket):
-    # while True:
-    #     try:
-    #         message = await websocket.recv()
-    #     except websockets.ConnectionClosedOK:
-    #         break
-    #     print(message)
-    #     the above pattern of waiting on a message and handling a closed connection is so common that
-    #     there is a shorter way to do it
+    # Initialize a Connect Four game.
+    game = Connect4()
+
+    # Players take alternate turns, using the same browser.
+    turns = itertools.cycle([PLAYER1, PLAYER2])
+    player = next(turns)
+
     async for message in websocket:
-        print(message)
+        # Parse a "play" event from the UI.
+        event = json.loads(message)
+        assert event["type"] == "play"
+        column = event["column"]
+
+        try:
+            # Play the move.
+            row = game.play(player, column)
+        except RuntimeError as exc:
+            # Send an "error" event if the move was illegal.
+            event = {
+                "type": "error",
+                "message": str(exc),
+            }
+            await websocket.send(json.dumps(event))
+            continue
+
+        # Send a "play" event to update the UI.
+        event = {
+            "type": "play",
+            "player": player,
+            "column": column,
+            "row": row,
+        }
+        await websocket.send(json.dumps(event))
+
+        # If move is winning, send a "win" event.
+        if game.winner is not None:
+            event = {
+                "type": "win",
+                "player": game.winner,
+            }
+            await websocket.send(json.dumps(event))
+
+        # Alternate turns.
+        player = next(turns)
 
 
 async def main():
